@@ -1,58 +1,105 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# MediPlus Pharmacy Mobile API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A versioned REST API built with Laravel for the MediPlus Pharmacy mobile app. Customers can browse medicines, place orders, and upload prescriptions.
 
-## About Laravel
+## API Versioning
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+All endpoints are prefixed with `/api/v1`.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Why version the API?** Once the mobile app is released, users' phones depend on the API's exact shape. If we need breaking changes later, we create `/api/v2` and keep `/api/v1` running, so older app versions don't break.
+- **In the URL:** routes are grouped in `routes/api.php` with `Route::prefix('v1')`.
+- **In route names:** routes are named `v1.customers.index`, `v1.orders.store`, etc., so future v2 routes won't clash.
+- **In the code:** controllers live in `app/Http/Controllers/Api/V1`. A future version gets its own `Api/V2` folder, leaving v1 untouched.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+### Endpoints
 
-## Learning Laravel
+Each resource uses `Route::apiResource`, which provides 5 routes:
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+| Method | URL | Action |
+|---|---|---|
+| GET | /api/v1/{resource} | List all |
+| POST | /api/v1/{resource} | Create |
+| GET | /api/v1/{resource}/{id} | Show one |
+| PUT/PATCH | /api/v1/{resource}/{id} | Update |
+| DELETE | /api/v1/{resource}/{id} | Delete |
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+Resources: `customers`, `prescriptions`, `inventories`, `orders`
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+## Data Model
 
-## Agentic Development
+```mermaid
+erDiagram
+    CUSTOMERS ||--o{ PRESCRIPTIONS : uploads
+    CUSTOMERS ||--o{ ORDERS : places
+    PRESCRIPTIONS |o--o{ ORDERS : "attached to"
+    ORDERS ||--|{ ORDER_ITEMS : contains
+    INVENTORIES ||--o{ ORDER_ITEMS : "appears in"
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+    CUSTOMERS {
+        bigint id PK
+        string name
+        string email UK
+        string phone
+        text address
+    }
+    PRESCRIPTIONS {
+        bigint id PK
+        bigint customer_id FK
+        string file_path
+        string status
+        text notes
+    }
+    INVENTORIES {
+        bigint id PK
+        string name
+        text description
+        decimal price
+        int stock
+        boolean requires_prescription
+    }
+    ORDERS {
+        bigint id PK
+        bigint customer_id FK
+        bigint prescription_id FK "nullable"
+        string status
+        decimal total
+    }
+    ORDER_ITEMS {
+        bigint id PK
+        bigint order_id FK
+        bigint inventory_id FK
+        int quantity
+        decimal price
+    }
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+### Relationships
 
-## Contributing
+| Model | Relationship |
+|---|---|
+| Customer | hasMany Prescriptions, hasMany Orders |
+| Prescription | belongsTo Customer, hasMany Orders |
+| Order | belongsTo Customer, belongsTo Prescription (optional), hasMany OrderItems |
+| OrderItem | belongsTo Order, belongsTo Inventory |
+| Inventory | hasMany OrderItems |
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Design decisions
 
-## Code of Conduct
+- **order_items table:** an order can contain many medicines, and a medicine appears in many orders. Each item stores its own `price` so past orders keep the price the customer actually paid, even if the medicine's price changes later.
+- **Prices use `decimal(10,2)`**, not float, to avoid rounding errors with money.
+- **Deleting a customer** deletes their prescriptions and orders (`cascadeOnDelete`).
+- **Deleting a prescription** keeps the order and sets `prescription_id` to null (`nullOnDelete`).
+- **A medicine that appears in past orders cannot be deleted**, which protects order history.
+- **`requires_prescription`** flags medicines that need a prescription before they can be ordered.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## Setup
 
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```bash
+git clone <repo-url>
+cd medipluspharmacy
+composer install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
+php artisan serve
+```
