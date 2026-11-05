@@ -3,48 +3,56 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StorePrescriptionRequest;
+use App\Http\Requests\UpdatePrescriptionRequest;
 use App\Models\Prescription;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class PrescriptionController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
-        //
+        return Prescription::latest()->paginate(10);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-    public function store(Request $request)
+    public function store(StorePrescriptionRequest $request)
     {
-        //
+        $path = $request->file('file')->store('prescriptions', 'public');
+
+        $prescription = Prescription::create([
+            'customer_id' => $request->customer_id,
+            'file_path' => $path,
+            'notes' => $request->notes,
+        ]);
+
+        return response()->json($prescription, 201);
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(Prescription $prescription)
     {
-        //
+        return $prescription;
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, Prescription $prescription)
+    public function update(UpdatePrescriptionRequest $request, Prescription $prescription)
     {
-        //
+        $prescription->update($request->validated());
+
+        return $prescription;
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(Prescription $prescription)
     {
-        //
+        Storage::disk('public')->delete($prescription->file_path);
+
+        $prescription->delete();
+
+        return response()->noContent();
+    }
+
+    public function file(Prescription $prescription)
+    {
+        return response()->file(
+            Storage::disk('public')->path($prescription->file_path)
+        );
     }
 }
